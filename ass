@@ -1,0 +1,198 @@
+{
+  "name": "line-heart-bot",
+  "version": "1.0.0",
+  "description": "LINE Chatbot Assessment Webhook",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "body-parser": "^1.20.2",
+    "express": "^4.19.2"
+  }
+}
+const express = require('express');
+const bodyParser = require('body-parser');
+const app = express();
+
+app.use(bodyParser.json());
+
+// คลังคำถามและตัวเลือกทั้ง 8 ข้อ
+const questions = [
+    {
+        q: "1. มีอาการเจ็บแน่นหน้าอกหรือไม่",
+        options: [
+            { label: "0: ไม่มี", score: 0, isEmergency: false },
+            { label: "1: เจ็บเล็กน้อยหายใน 5 นาที", score: 1, isEmergency: false },
+            { label: "2: เจ็บนาน >10 นาที/ร้าว", score: 2, isEmergency: true }
+        ]
+    },
+    {
+        q: "2. มีอาการหอบเหนื่อยหรือไม่",
+        options: [
+            { label: "0: หายใจปกติ", score: 0, isEmergency: false },
+            { label: "1: เหนื่อยเวลาเดิน/ทำกิจกรรม", score: 1, isEmergency: false },
+            { label: "2: เหนื่อยแม้อยู่เฉยๆ", score: 2, isEmergency: true }
+        ]
+    },
+    {
+        q: "3. มีอาการใจสั่นบ่อยแค่ไหน",
+        options: [
+            { label: "0: ปกติ", score: 0, isEmergency: false },
+            { label: "1: ใจสั่นบางครั้ง", score: 1, isEmergency: false },
+            { label: "2: ใจสั่นมาก/หน้ามืดจะเป็นลม", score: 2, isEmergency: true }
+        ]
+    },
+    {
+        q: "4. มีอาการเวียนศีรษะหรือไม่",
+        options: [
+            { label: "0: ไม่มีอาการ", score: 0, isEmergency: false },
+            { label: "1: เวียนศีรษะเล็กน้อย", score: 1, isEmergency: false },
+            { label: "2: เป็นลมหรือเกือบหมดสติ", score: 2, isEmergency: true }
+        ]
+    },
+    {
+        q: "5. มีอาการบวมบริเวณเท้าหรือน้ำหนักขึ้นหรือไม่",
+        options: [
+            { label: "0: ไม่บวม", score: 0, isEmergency: false },
+            { label: "1: บวมเล็กน้อย", score: 1, isEmergency: false },
+            { label: "2: บวมมาก/นน.ขึ้น >2 กก.ใน 3 วัน", score: 2, isEmergency: false }
+        ]
+    },
+    {
+        q: "6. ลักษณะแผลบริเวณที่ทำการสวนหัวใจ (ข้อพับแขนหรือขาหนีบ)",
+        options: [
+            { label: "0: ปกติ", score: 0, isEmergency: false },
+            { label: "1: บวมเล็กน้อยไม่มีเลือดออก", score: 1, isEmergency: false },
+            { label: "2: เลือดออกไม่หยุด/เป็นก้อนไต", score: 2, isEmergency: true }
+        ]
+    },
+    {
+        q: "7. มีอาการเลือดออกผิดปกติหรือไม่",
+        options: [
+            { label: "0: ไม่มีอาการ", score: 0, isEmergency: false },
+            { label: "1: มีรอยช้ำตามร่างกายเล็กน้อย", score: 1, isEmergency: false },
+            { label: "2: ถ่ายดำ/อาเจียนเลือด/เลือดไม่หยุด", score: 2, isEmergency: true }
+        ]
+    },
+    {
+        q: "8. ความสม่ำเสมอในการรับประทานยา",
+        options: [
+            { label: "0: รับประทานยาครบทุกมื้อ", score: 0, isEmergency: false },
+            { label: "1: ลืมรับประทานยาบางครั้ง", score: 1, isEmergency: false },
+            { label: "2: หยุดยาเอง/ไม่ทานบ่อยครั้ง", score: 2, isEmergency: false }
+        ]
+    }
+];
+
+const userSessions = {};
+
+app.post('/webhook', (req, res) => {
+    const reqBody = req.body || {};
+    const intentName = reqBody.queryResult?.intent?.displayName || '';
+    const textQuery = (reqBody.queryResult?.queryText || '').trim();
+    const userId = reqBody.originalDetectIntentRequest?.payload?.data?.source?.userId || 'test_user';
+
+    if (!userSessions[userId]) {
+        userSessions[userId] = { step: -1, totalScore: 0, hasEmergency: false };
+    }
+    let session = userSessions[userId];
+
+    if (intentName === 'Assessment.Start' || textQuery === 'เริ่มประเมิน' || textQuery === 'เริ่ม') {
+        session.step = 0;
+        session.totalScore = 0;
+        session.hasEmergency = false;
+        
+        const q1 = questions[0];
+        const fullText = `${q1.q}\n- 0 คะแนน: ไม่มี\n- 1 คะแนน: เจ็บเล็กน้อยหายใน 5 นาที\n- 2 คะแนน: เจ็บนานกว่า 10 นาที เจ็บร้าวไป แขน คอ หลัง หรือกราม`;
+        
+        return res.json({
+            fulfillmentMessages: [{
+                payload: {
+                    line: {
+                        type: "text",
+                        text: fullText,
+                        quickReply: {
+                            items: [
+                                { type: "action", action: { type: "message", label: "0 คะแนน (ไม่มี)", text: "0" } },
+                                { type: "action", action: { type: "message", label: "1 คะแนน (เล็กน้อย)", text: "1" } },
+                                { type: "action", action: { type: "message", label: "2 คะแนน (รุนแรง)", text: "2" } }
+                            ]
+                        }
+                    }
+                }
+            }]
+        });
+    }
+
+    if (session.step >= 0 && session.step < 8) {
+        const score = parseInt(textQuery, 10);
+        
+        if (isNaN(score) || score < 0 || score > 2) {
+            return res.json({
+                fulfillmentText: `กรุณาเลือกคำตอบเฉพาะ 0, 1 หรือ 2 คะแนนครับ\n(ขณะนี้คุณอยู่ที่ข้อ ${session.step + 1})`
+            });
+        }
+
+        const currentQuestion = questions[session.step];
+        const selectedOption = currentQuestion.options.find(o => o.score === score);
+        
+        session.totalScore += score;
+        if (selectedOption && selectedOption.isEmergency) {
+            session.hasEmergency = true;
+        }
+
+        session.step++;
+
+        if (session.step < 8) {
+            const nextQ = questions[session.step];
+            const detailOptions = nextQ.options.map(o => `- ${o.label}`).join('\n');
+            return res.json({
+                fulfillmentMessages: [{
+                    payload: {
+                        line: {
+                            type: "text",
+                            text: `${nextQ.q}\n${detailOptions}`,
+                            quickReply: {
+                                items: [
+                                    { type: "action", action: { type: "message", label: "0 คะแนน", text: "0" } },
+                                    { type: "action", action: { type: "message", label: "1 คะแนน", text: "1" } },
+                                    { type: "action", action: { type: "message", label: "2 คะแนน", text: "2" } }
+                                ]
+                            }
+                        }
+                    }
+                }]
+            });
+        } else {
+            const finalScore = session.totalScore;
+            const isRed = finalScore >= 7 || session.hasEmergency;
+            let resultText = `📋 สรุปผลการประเมิน (รวม ${finalScore} คะแนน)\n\n`;
+
+            if (isRed) {
+                resultText += `🔴 ระดับสีแดง : ความเสี่ยงสูง\n` +
+                    `⚠️ คำแนะนำ: ควรโทรติดต่อ 1669 หรือไปโรงพยาบาลแผนกฉุกเฉินทันที!\n` +
+                    `(พบคะแนนรวม ≥ 7 หรือมีอาการฉุกเฉิน เช่น เจ็บแน่นหน้าอก >10 นาที/ร้าว, หอบเหนื่อยมาก, หมดสติ, เลือดออกไม่หยุด/แผล PCI เลือดออกมาก)`;
+            } else if (finalScore >= 3 && finalScore <= 6) {
+                resultText += `🟡 ระดับสีเหลือง : ความเสี่ยงปานกลาง\n` +
+                    `⚠️ คำแนะนำ: ควรติดต่อหรือเข้ารับการรักษาภายใน 24 ชั่วโมง\n` +
+                    `การปฏิบัติตัว: พักกิจกรรมที่ทำให้เกิดอาการ ติดต่อหอผู้ป่วยเพชชรัตน์ 4C ผ่าน Line OA เพื่อปรึกษาการปฏิบัติตัวอย่างเหมาะสม หรือหากมีอาการมากขึ้นให้เปลี่ยนเป็นระดับสีแดงทันที`;
+            } else {
+                resultText += `🟢 ระดับสีเขียว : ความเสี่ยงต่ำ\n` +
+                    `✅ คำแนะนำ: อาการคงที่สามารถดูแลตนเองได้ที่บ้าน เช่น รับประทานยาครบตามแพทย์สั่ง วัดความดันโลหิตและชีพจรสม่ำเสมอ งดสูบบุหรี่ ออกกำลังกายตามคำแนะนำของแพทย์ และพบแพทย์ตามนัด`;
+            }
+
+            resultText += `\n\nหากต้องการทำแบบประเมินใหม่อีกครั้ง พิมพ์คำว่า "เริ่มประเมิน"`;
+            delete userSessions[userId];
+
+            return res.json({ fulfillmentText: resultText });
+        }
+    }
+
+    return res.json({
+        fulfillmentText: `พิมพ์คำว่า "เริ่มประเมิน" เพื่อเริ่มทำแบบประเมินอาการ 8 ข้อครับ`
+    });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server is running on port ${PORT}`));
